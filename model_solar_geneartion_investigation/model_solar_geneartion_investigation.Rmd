@@ -21,6 +21,104 @@ Blah
 ```{r libraries, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(DescTools)
+library(solaR)
+```
+
+```{r}
+
+source("../R/home_solar_data.R")
+
+dublin_airport_monthly_global_illumination <- 
+  c(7228, 12761, 25705, 39407, 52530, 52648, 50859, 42506, 30043, 18168, 8935, 5550) / 1000
+ 
+dublin_airport_monthly_average_temperature <- 
+  c(5.3, 5.3, 6.8, 8.3, 10.9, 13.6, 15.6, 15.3, 13.4, 10.5, 7.4, 5.6)
+dublin_airport_latitude <- 53.5
+
+summerhill_Meteo <- readG0dm(
+  dublin_airport_monthly_global_illumination, 
+  Ta = dublin_airport_monthly_average_temperature,
+  lat = dublin_airport_latitude,
+  year = 2010  # last year of averages
+)
+
+summerhill_horizontal_irradiance <- calcG0(
+  lat = dublin_airport_latitude, 
+  modeRad = "prom",
+  dataRad = dublin_airport_monthly_global_illumination
+)
+
 ```
 
 
+```{r}
+summerhill_horizontal_irradiance_df <- as.data.frameI(summerhill_horizontal_irradiance) 
+
+summerhill_horizontal_irradiance_df$date_time <- rownames(summerhill_horizontal_irradiance_df) 
+
+rownames(summerhill_horizontal_irradiance_df) <- NULL
+
+summerhill_horizontal_irradiance_df <-
+  summerhill_horizontal_irradiance_df %>% 
+  mutate(solar_time = stringr::str_split(date_time, " "),
+         solar_time = map_chr(solar_time, function(x) x[2]),
+         solar_time_obj = lubridate::hms(solar_time),
+         date_time = lubridate::ymd_hms(date_time, tz = "Europe/Dublin"),
+         time_only = lubridate::ymd_hms(paste("2000-01-01", solar_time), tz = "Europe/Dublin"),
+         time_only_int = as.integer(time_only))
+
+
+summerhill_horizontal_irradiance_df %>% 
+  ggplot(aes(time_only, G0)) +
+  geom_line() +
+  facet_wrap(~month) +
+  scale_x_datetime(date_label = "%H:%M") +
+  labs(title = "Monthly Average Global Irradiance for Summerhill") +
+  theme_minimal()
+
+```
+
+```{r}
+summerhill_horizontal_irradiance_df %>%
+  filter(month == 1) %>% 
+  ggplot(aes(time_only, G0)) +
+  geom_line() +
+  scale_x_datetime(date_label = "%H:%M") +
+  labs(title = "Monthly Average Global Irradiance for Summerhill - January") +
+  theme_minimal()
+
+```
+
+```{r}
+
+area_under_curve <- function(month_number, df){
+  DescTools::AUC(
+    df$time_only_int,
+    df$G0,
+    method="spline"
+  )
+}
+summerhill_horizontal_irradiance_nested_df <- 
+  summerhill_horizontal_irradiance_df %>% 
+  group_by(month) %>% 
+  nest() %>% 
+  mutate(daily_average_energy_per_m2 = purrr::map2_dbl(month, data, area_under_curve))
+
+summerhill_horizontal_irradiance_nested_df
+```
+
+
+```{r}
+
+summerhill_horizontal_irradiance_nested_df %>% 
+  ungroup() %>% 
+  mutate(
+    daily_average_energy_normalised = daily_average_energy_per_m2 / max(daily_average_energy_per_m2)
+  )
+```
+
+
+```{r}
+
+
+```
